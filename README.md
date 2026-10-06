@@ -259,10 +259,12 @@ gunicorn 建议保持单 worker（SQLite 写串行化即可；多线程没有问
 .
 ├── app/
 │   ├── __init__.py        # Flask 应用工厂（静态目录指向仓库根 static/）
-│   ├── db.py              # SQLite 连接、建表、状态机注释
+│   ├── db.py              # SQLite 连接、建表、IMMEDIATE 写事务、状态机注释
 │   ├── rules.py           # 公开规则的 Python 实现（唯一事实来源之一）
+│   ├── services.py        # 名单/封存/揭晓写流程：事务内重新检查状态再读写
 │   ├── routes.py          # 页面路由、JSON API、核验包 zip/json 导出
 │   └── templates/         # index / round / verify 三个页面（Jinja2）
+├── tests/                 # 顺序流程回归 + 确定性交错验证 + HTTP 并发不变量
 ├── static/
 │   ├── css/style.css
 │   └── js/
@@ -281,6 +283,30 @@ gunicorn 建议保持单 worker（SQLite 写串行化即可；多线程没有问
 ```
 
 状态机：`open`（可改名单）→ `sealed`（快照+摘要固定，等种子）→ `revealed`（结果永久固定）。
+
+并发与事务：名单新增、删除、整体替换与封存都在同一个 `BEGIN IMMEDIATE` 写事务内
+**先重新读取轮次状态与名单、再校验和写入、最后一次提交**。SQLite 的立即写锁使这些
+请求互斥串行，因此“封存读取名单之后、提交之前混入新编号”的交错不会发生：
+
+- 名单变更先提交：封存随后在锁内读到变更后的最新名单，按它重新复核人数并保存规范
+  快照、人数与摘要（人数不足仍拒绝封存，轮次保持 `open`）；
+- 封存先提交：之后的任何名单变更在锁内重新检查时看到 `sealed`，一律返回 409，
+  参与者表保持封存时内容，快照与摘要不变；
+- 重复封存返回既有快照（`alreadySealed`），不重算、不覆盖。
+
+测试（仅依赖 Flask，标准库 `unittest`，不改动任何既有接口）：
+
+```bash
+pip install -r requirements.txt
+python3 -m unittest discover -t . -s tests -v
+```
+
+- `tests/test_sequential_flow.py`：按本 README 的命令行示例走完整流程，并用包内
+  `verify.py` 独立核验导出的 JSON / ZIP 核验包；
+- `tests/test_interleave.py`：**确定性交错验证**——用两个真实 SQLite 连接手工安排
+  新增/整体替换/删除与封存的加锁、阻塞与两种提交先后；
+- `tests/test_concurrent_http.py`：多线程真实 HTTP 请求并发新增/替换 + 封存的
+  快照—摘要—参与者表一致性不变量检查。
 
 主要 API：
 
