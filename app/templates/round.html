@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}轮次 {{ round_id }} · 现场抽签{% endblock %}
+{% block content %}
+
+<div class="card">
+  <h2 id="roundTitle">轮次加载中…</h2>
+  <dl class="meta" id="meta"></dl>
+  <div class="flash" id="flash"></div>
+</div>
+
+<!-- 登记阶段 -->
+<div class="card" id="openCard" style="display:none;">
+  <h2>登记参与者（封存前可随时修改）</h2>
+  <p class="muted">按唯一编号登记；编号去重、去除首尾空白。封存前名单仅存在于服务器，封存时才生成不可改的快照与摘要。</p>
+
+  <h3>逐个添加</h3>
+  <div style="display:flex; gap:8px;">
+    <input type="text" id="newId" placeholder="输入唯一编号，如 A001">
+    <button type="button" id="addBtn">添加</button>
+  </div>
+
+  <h3>批量导入（每行一个编号，将整体替换当前名单）</h3>
+  <textarea id="bulkIds" placeholder="A001&#10;A002&#10;A003"></textarea>
+  <button type="button" id="bulkBtn" class="secondary">替换为以上名单</button>
+
+  <h3>当前名单（<span id="countOpen">0</span> 人，按录入顺序）</h3>
+  <table>
+    <thead><tr><th class="rank">#</th><th>编号</th><th></th></tr></thead>
+    <tbody id="openList"></tbody>
+  </table>
+</div>
+
+<!-- 封存操作 -->
+<div class="card" id="sealCard" style="display:none;">
+  <h2>封存名单</h2>
+  <p class="muted">
+    封存条件：人数（<strong id="countSealText">0</strong>）不少于中奖名额（<strong id="prizeSealText">0</strong>）。
+    封存时会把按 UTF-8 字节序排序的规范名单快照及其 SHA-256 摘要保存到服务器并公开展示，
+    <strong>此后任何人都不能再修改名单</strong>。
+  </p>
+  <details>
+    <summary>预览规范名单（排序后）与本地试算摘要</summary>
+    <p class="muted">封存前后两处摘要必须完全一致。</p>
+    <div class="hash-box" id="previewDigest" style="margin:8px 0;">（名单为空）</div>
+    <pre id="previewSnapshot" class="muted mono" style="white-space:pre-wrap;max-height:220px;overflow:auto;"></pre>
+  </details>
+  <button type="button" id="sealBtn">封存名单</button>
+</div>
+
+<!-- 封存后展示 -->
+<div class="card" id="sealedInfoCard" style="display:none;">
+  <h2>已封存的规范名单快照与摘要</h2>
+  <dl class="meta">
+    <dt>名单摘要</dt><dd><div class="hash-box" id="sealedDigest"></div></dd>
+    <dt>封存时间</dt><dd id="sealedAt" class="mono"></dd>
+    <dt>人数</dt><dd id="sealedCount"></dd>
+  </dl>
+  <details style="margin-top:10px;">
+    <summary>查看规范名单快照（按 UTF-8 字节序排序）</summary>
+    <pre id="sealedSnapshot" class="mono" style="white-space:pre-wrap;max-height:300px;overflow:auto;background:#f7f9fc;padding:10px;border-radius:6px;"></pre>
+  </details>
+  <p class="muted">请现场人员核对并留存上述摘要（可与导出核验包中的名单摘要比对）。</p>
+</div>
+
+<!-- 揭晓 -->
+<div class="card" id="revealCard" style="display:none;">
+  <h2>提交秘密种子揭晓</h2>
+  <p class="muted">
+    服务器会校验 <span class="mono">SHA256("COMMIT:"+种子)</span> 是否等于事先留存的承诺。
+    不匹配时轮次<strong>保持封存状态</strong>，不产生任何结果；
+    匹配时按公开规则一次性选出全部中奖编号并永久固定，重复提交不会重抽。
+  </p>
+  <label for="seedInput">秘密种子（64 位十六进制）</label>
+  <input type="text" id="seedInput" placeholder="粘贴创建轮次时保存的种子">
+  <div style="margin-top:8px;">
+    <button type="button" id="revealBtn">校验承诺并揭晓</button>
+  </div>
+  <p class="muted" id="attemptsText"></p>
+</div>
+
+<!-- 结果 -->
+<div class="card" id="resultCard" style="display:none;">
+  <h2>🎉 中奖结果（已永久固定）</h2>
+  <dl class="meta">
+    <dt>揭晓种子</dt><dd><div class="hash-box" id="resultSeed"></div></dd>
+    <dt>揭晓时间</dt><dd id="revealedAt" class="mono"></dd>
+  </dl>
+  <table style="margin-top:10px;">
+    <thead><tr><th class="rank">名次</th><th>中奖编号</th></tr></thead>
+    <tbody id="winnerList"></tbody>
+  </table>
+</div>
+
+<!-- 导出核验包 -->
+<div class="card" id="exportCard" style="display:none;">
+  <h2>导出核验包</h2>
+  <p class="muted">
+    核验包含种子（未揭晓时为空）、规范名单、名单摘要、规则标识、承诺与结果。
+    zip 内附 <span class="mono">verify.py</span> 与 <span class="mono">RULES.md</span>，
+    任何人可用 <span class="mono">python3 verify.py 包文件</span> 从种子和名单<strong>独立重算</strong>核对，
+    而不是只比对已保存的中奖列表。
+  </p>
+  <a class="btn" id="zipLink" href="#">下载 ZIP 核验包（推荐）</a>
+  <a class="btn secondary" id="jsonLink" href="#">仅下载 package.json</a>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>window.ROUND_ID = {{ round_id|tojson }};</script>
+<script src="{{ url_for('static', filename='js/sha256.js') }}"></script>
+<script src="{{ url_for('static', filename='js/rules.js') }}"></script>
+<script src="{{ url_for('static', filename='js/common.js') }}"></script>
+<script src="{{ url_for('static', filename='js/round.js') }}"></script>
+{% endblock %}

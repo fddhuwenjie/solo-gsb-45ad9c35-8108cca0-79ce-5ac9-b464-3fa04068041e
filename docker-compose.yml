@@ -1,0 +1,12 @@
+services:
+  lottery:
+    build: .
+    image: public-lottery:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - lottery-data:/data
+    restart: unless-stopped
+
+volumes:
+  lottery-data:

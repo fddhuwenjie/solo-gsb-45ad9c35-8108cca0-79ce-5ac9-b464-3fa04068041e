@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}新建轮次 · 现场抽签{% endblock %}
+{% block content %}
+
+<div class="card">
+  <h2>① 在本机浏览器生成秘密种子并创建轮次</h2>
+  <p class="muted">
+    种子在<strong>你的浏览器内</strong>生成，<strong>不会</strong>在创建时发送给服务器；
+    服务器只保存其 SHA-256 承诺。请在封存名单前自行保密、妥善保存种子。
+  </p>
+
+  <label for="title">轮次名称</label>
+  <input type="text" id="title" placeholder="例：2026 年会一等奖抽签">
+
+  <label for="prizeCount">中奖名额</label>
+  <input type="number" id="prizeCount" min="1" value="1">
+
+  <div style="margin:14px 0;">
+    <button type="button" id="genSeedBtn" class="secondary">🎲 生成种子（256 位随机数）</button>
+  </div>
+
+  <div id="seedArea" style="display:none;">
+    <label>秘密种子（请立即复制保存，丢失将无法揭晓）</label>
+    <div class="hash-box seed-box" id="seedText"></div>
+    <button type="button" class="secondary" id="copySeedBtn">复制种子</button>
+    <button type="button" class="secondary" id="downloadSeedBtn">下载 seed.txt</button>
+
+    <label style="margin-top:14px;">承诺 SHA256("COMMIT:"+种子) —— 请交现场人员事先留存</label>
+    <div class="hash-box" id="commitText"></div>
+    <button type="button" class="secondary" id="copyCommitBtn">复制承诺</button>
+
+    <div class="checkbox-row">
+      <input type="checkbox" id="savedConfirm">
+      <label for="savedConfirm">
+        我已复制/下载并妥善保存秘密种子，并已把<strong>承诺</strong>交由现场人员事先留存。
+        （种子不会提交给服务器，现在上传的只有承诺。）
+      </label>
+    </div>
+    <button type="button" id="createBtn" disabled>仅提交承诺，创建轮次</button>
+  </div>
+
+  <div class="flash" id="flash"></div>
+</div>
+
+<div class="card">
+  <h2>② 已有轮次</h2>
+  <table>
+    <thead>
+      <tr><th>名称</th><th>轮次编号</th><th>名额</th><th>状态</th><th>创建时间 (UTC)</th><th></th></tr>
+    </thead>
+    <tbody id="roundsBody">
+      <tr><td colspan="6" class="muted">加载中…</td></tr>
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/sha256.js') }}"></script>
+<script src="{{ url_for('static', filename='js/rules.js') }}"></script>
+<script src="{{ url_for('static', filename='js/common.js') }}"></script>
+<script src="{{ url_for('static', filename='js/index.js') }}"></script>
+{% endblock %}

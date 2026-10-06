@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.git/
+.gitignore
+.dockerignore
+*.db
+*.db-wal
+*.db-shm
+data/
+.DS_Store

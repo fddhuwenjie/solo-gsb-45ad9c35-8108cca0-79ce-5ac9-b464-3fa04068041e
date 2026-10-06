@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}核验工具 · 现场抽签{% endblock %}
+{% block content %}
+
+<div class="card">
+  <h2>独立核验核验包</h2>
+  <p class="muted">
+    选择导出的 <span class="mono">package.json</span>（zip 内同名文件亦可，需先解压）。
+    本页面在<strong>你的浏览器内</strong>按公开规则重算承诺、名单摘要与中奖编号，
+    不会信任包里已保存的中奖列表。也可以填入事先留存的承诺/名单摘要做外部对照。
+  </p>
+
+  <label for="pkgFile">核验包文件（package.json）</label>
+  <input type="file" id="pkgFile" accept=".json,application/json">
+
+  <details style="margin-top:12px;">
+    <summary>（可选）填入事先留存的值做外部对照</summary>
+    <label for="extCommit">事先留存的承诺</label>
+    <input type="text" id="extCommit" placeholder="64 位十六进制">
+    <label for="extDigest">事先留存的名单摘要</label>
+    <input type="text" id="extDigest" placeholder="64 位十六进制">
+  </details>
+
+  <div id="verifyOut" style="margin-top:14px;"></div>
+</div>
+
+<div class="card">
+  <h2>命令行独立核验（推荐给现场监督方）</h2>
+  <p class="muted">核验包 zip 内自带仅依赖 Python 3 标准库的核验脚本：</p>
+  <pre class="mono" style="background:#0f1d33;color:#cfe0ff;padding:12px;border-radius:8px;overflow:auto;"># 解压后
+python3 verify.py package.json
+
+# 结合事先留存的承诺与名单摘要
+python3 verify.py package.json \
+  --commitment &lt;事先留存的承诺&gt; \
+  --list-digest &lt;事先留存的名单摘要&gt;
+
+# 任何不符都会被逐条指出，进程以非零退出码结束</pre>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/sha256.js') }}"></script>
+<script src="{{ url_for('static', filename='js/rules.js') }}"></script>
+<script src="{{ url_for('static', filename='js/common.js') }}"></script>
+<script src="{{ url_for('static', filename='js/verify.js') }}"></script>
+{% endblock %}
