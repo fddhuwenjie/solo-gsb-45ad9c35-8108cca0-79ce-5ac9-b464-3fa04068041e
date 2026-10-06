@@ -6,6 +6,7 @@
     revealed 种子匹配承诺，中奖结果一次性写入，永久拒绝重抽
 """
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 from flask import current_app, g
@@ -43,6 +44,31 @@ CREATE INDEX IF NOT EXISTS idx_participants_round ON participants(round_id);
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+@contextmanager
+def immediate_transaction(conn: sqlite3.Connection):
+    """把“状态检查 + 名单读写 + 提交”放进同一个写事务。
+
+    BEGIN IMMEDIATE 在事务一开始就取得 SQLite 写锁，使并发的名单变更
+    与封存串行化，消除“先查状态再读写”的检查—使用竞态（TOCTOU）：
+
+    - 名单变更先提交 → 封存在自己的事务里重新读取名单，
+      快照、人数与摘要必然基于变更后的名单；
+    - 封存先提交 → 名单变更在事务内复查状态时会看到 sealed，
+      按约定返回 409，参与者表保持封存时内容。
+
+    块内提前 return（如 404/409/参数校验失败）会正常提交——
+    这些路径没有任何写入，提交只用于释放写锁；异常则回滚。
+    """
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        yield conn
+    except BaseException:
+        conn.rollback()
+        raise
+    else:
+        conn.commit()
 
 
 def get_db() -> sqlite3.Connection:

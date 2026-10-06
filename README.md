@@ -251,6 +251,16 @@ gunicorn --bind 0.0.0.0:8000 --workers 1 --threads 8 wsgi:app
 数据库默认是当前目录下的 `lottery.db`，可用环境变量 `LOTTERY_DB` 修改位置。
 gunicorn 建议保持单 worker（SQLite 写串行化即可；多线程没有问题）。
 
+运行测试（确定性交错验证，仅需标准库 unittest）：
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+覆盖名单新增/整体替换与封存的两种提交先后：变更先提交则封存按变更后名单
+重新检查人数并保存快照、人数与摘要；封存先提交则后续变更返回 409，
+参与者表保持封存时内容。
+
 ---
 
 ## 八、项目结构与接口说明
@@ -273,6 +283,7 @@ gunicorn 建议保持单 worker（SQLite 写串行化即可；多线程没有问
 │       ├── round.js       # 名单增改、封存、揭晓、导出
 │       └── verify.js      # 浏览器内核验（独立重算）
 ├── verify/verify.py       # 独立核验脚本（仅 Python 标准库）
+├── tests/test_seal_race.py # 封存与名单变更竞态的确定性交错测试
 ├── RULES.md               # 规则全文
 ├── wsgi.py                # gunicorn wsgi:app
 ├── requirements.txt

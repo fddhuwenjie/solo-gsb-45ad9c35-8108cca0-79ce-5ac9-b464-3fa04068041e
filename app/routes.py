@@ -15,7 +15,7 @@ from flask import (
 )
 
 from . import rules
-from .db import get_db, now_iso
+from .db import get_db, immediate_transaction, now_iso
 
 bp = Blueprint("main", __name__)
 
@@ -162,39 +162,39 @@ def _require_open(row):
 
 @bp.put("/api/rounds/<round_id>/participants")
 def replace_participants(round_id):
-    row = get_round_or_404(round_id)
-    error = _require_open(row)
-    if error:
-        return error
-
-    body = request.get_json(silent=True) or {}
-    raw = body.get("participants")
-    if not isinstance(raw, list) or not all(isinstance(x, str) for x in raw):
-        return err("participants 必须是字符串数组")
-
-    cleaned: list[str] = []
-    seen: set[str] = set()
-    for item in raw:
-        entry = rules.normalize_entry(item)
-        if not entry:
-            continue
-        if entry in seen:
-            return err(f"编号重复：{entry}")
-        if "\n" in entry or "\r" in entry:
-            return err(f"编号不能包含换行符：{entry}")
-        if len(entry) > 200:
-            return err(f"编号过长（>200 字符）：{entry}")
-        seen.add(entry)
-        cleaned.append(entry)
-
     db = get_db()
-    db.execute("DELETE FROM participants WHERE round_id=?", (round_id,))
-    db.executemany(
-        "INSERT INTO participants (round_id,entry_id,position,added_at) "
-        "VALUES (?,?,?,?)",
-        [(round_id, e, i, now_iso()) for i, e in enumerate(cleaned)],
-    )
-    db.commit()
+    with immediate_transaction(db):
+        row = get_round_or_404(round_id)
+        error = _require_open(row)
+        if error:
+            return error
+
+        body = request.get_json(silent=True) or {}
+        raw = body.get("participants")
+        if not isinstance(raw, list) or not all(isinstance(x, str) for x in raw):
+            return err("participants 必须是字符串数组")
+
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for item in raw:
+            entry = rules.normalize_entry(item)
+            if not entry:
+                continue
+            if entry in seen:
+                return err(f"编号重复：{entry}")
+            if "\n" in entry or "\r" in entry:
+                return err(f"编号不能包含换行符：{entry}")
+            if len(entry) > 200:
+                return err(f"编号过长（>200 字符）：{entry}")
+            seen.add(entry)
+            cleaned.append(entry)
+
+        db.execute("DELETE FROM participants WHERE round_id=?", (round_id,))
+        db.executemany(
+            "INSERT INTO participants (round_id,entry_id,position,added_at) "
+            "VALUES (?,?,?,?)",
+            [(round_id, e, i, now_iso()) for i, e in enumerate(cleaned)],
+        )
     return jsonify(
         {"ok": True, "participants": participant_rows(round_id), "count": len(cleaned)}
     )
@@ -202,50 +202,50 @@ def replace_participants(round_id):
 
 @bp.post("/api/rounds/<round_id>/participants")
 def add_participant(round_id):
-    row = get_round_or_404(round_id)
-    error = _require_open(row)
-    if error:
-        return error
-
-    body = request.get_json(silent=True) or {}
-    entry = rules.normalize_entry(body.get("id") or "")
-    if not entry:
-        return err("请输入编号")
-    if "\n" in entry or "\r" in entry or len(entry) > 200:
-        return err("编号不合法")
-
     db = get_db()
-    exists = db.execute(
-        "SELECT 1 FROM participants WHERE round_id=? AND entry_id=?",
-        (round_id, entry),
-    ).fetchone()
-    if exists:
-        return err(f"编号已存在：{entry}", 409)
-    pos = db.execute(
-        "SELECT COALESCE(MAX(position)+1,0) FROM participants WHERE round_id=?",
-        (round_id,),
-    ).fetchone()[0]
-    db.execute(
-        "INSERT INTO participants (round_id,entry_id,position,added_at) "
-        "VALUES (?,?,?,?)",
-        (round_id, entry, pos, now_iso()),
-    )
-    db.commit()
+    with immediate_transaction(db):
+        row = get_round_or_404(round_id)
+        error = _require_open(row)
+        if error:
+            return error
+
+        body = request.get_json(silent=True) or {}
+        entry = rules.normalize_entry(body.get("id") or "")
+        if not entry:
+            return err("请输入编号")
+        if "\n" in entry or "\r" in entry or len(entry) > 200:
+            return err("编号不合法")
+
+        exists = db.execute(
+            "SELECT 1 FROM participants WHERE round_id=? AND entry_id=?",
+            (round_id, entry),
+        ).fetchone()
+        if exists:
+            return err(f"编号已存在：{entry}", 409)
+        pos = db.execute(
+            "SELECT COALESCE(MAX(position)+1,0) FROM participants WHERE round_id=?",
+            (round_id,),
+        ).fetchone()[0]
+        db.execute(
+            "INSERT INTO participants (round_id,entry_id,position,added_at) "
+            "VALUES (?,?,?,?)",
+            (round_id, entry, pos, now_iso()),
+        )
     return jsonify({"ok": True, "participants": participant_rows(round_id)})
 
 
 @bp.delete("/api/rounds/<round_id>/participants/<entry_id>")
 def delete_participant(round_id, entry_id):
-    row = get_round_or_404(round_id)
-    error = _require_open(row)
-    if error:
-        return error
     db = get_db()
-    db.execute(
-        "DELETE FROM participants WHERE round_id=? AND entry_id=?",
-        (round_id, entry_id),
-    )
-    db.commit()
+    with immediate_transaction(db):
+        row = get_round_or_404(round_id)
+        error = _require_open(row)
+        if error:
+            return error
+        db.execute(
+            "DELETE FROM participants WHERE round_id=? AND entry_id=?",
+            (round_id, entry_id),
+        )
     return jsonify({"ok": True, "participants": participant_rows(round_id)})
 
 
@@ -253,32 +253,34 @@ def delete_participant(round_id, entry_id):
 
 @bp.post("/api/rounds/<round_id>/seal")
 def seal_round(round_id):
-    row = get_round_or_404(round_id)
-    if row is None:
-        return err("轮次不存在", 404)
-    if row["status"] == "revealed":
-        return err("轮次已揭晓，无法封存", 409)
-    if row["status"] == "sealed":
-        return jsonify({"ok": True, "alreadySealed": True,
-                        "round": round_public_dict(row)})
-
-    entries = [p["id"] for p in participant_rows(round_id)]
-    if len(entries) < row["prize_count"]:
-        return err(
-            f"人数不足：当前 {len(entries)} 人，中奖名额 {row['prize_count']} 个，"
-            "封存要求人数不少于名额"
-        )
-
-    snapshot = rules.canonical_snapshot(entries)
-    digest = rules.sha256_hex(snapshot.encode("utf-8"))
-    ts = now_iso()
     db = get_db()
-    db.execute(
-        "UPDATE rounds SET status='sealed', snapshot=?, list_digest_hex=?, "
-        "participant_count=?, sealed_at=? WHERE id=?",
-        (snapshot, digest, len(entries), ts, round_id),
-    )
-    db.commit()
+    with immediate_transaction(db):
+        row = get_round_or_404(round_id)
+        if row is None:
+            return err("轮次不存在", 404)
+        if row["status"] == "revealed":
+            return err("轮次已揭晓，无法封存", 409)
+        if row["status"] == "sealed":
+            return jsonify({"ok": True, "alreadySealed": True,
+                            "round": round_public_dict(row)})
+
+        # 与状态检查同一事务内读取名单：并发名单变更要么已提交（此处可见），
+        # 要么被写锁挡在事务外（不可能在本事务提交前插入新编号）。
+        entries = [p["id"] for p in participant_rows(round_id)]
+        if len(entries) < row["prize_count"]:
+            return err(
+                f"人数不足：当前 {len(entries)} 人，中奖名额 {row['prize_count']} 个，"
+                "封存要求人数不少于名额"
+            )
+
+        snapshot = rules.canonical_snapshot(entries)
+        digest = rules.sha256_hex(snapshot.encode("utf-8"))
+        ts = now_iso()
+        db.execute(
+            "UPDATE rounds SET status='sealed', snapshot=?, list_digest_hex=?, "
+            "participant_count=?, sealed_at=? WHERE id=?",
+            (snapshot, digest, len(entries), ts, round_id),
+        )
     return jsonify(
         {"ok": True, "round": round_public_dict(get_round_or_404(round_id))}
     )
